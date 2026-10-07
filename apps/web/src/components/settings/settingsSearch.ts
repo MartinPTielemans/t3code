@@ -23,6 +23,7 @@ export type SettingsPath =
   | "/settings/source-control"
   | "/settings/storage"
   | "/settings/connections"
+  | "/settings/fleet"
   | "/settings/archived";
 
 /**
@@ -98,6 +99,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/source-control": "Source Control",
   "/settings/storage": "Storage",
   "/settings/connections": "Connections",
+  "/settings/fleet": "Fleet",
   "/settings/archived": "Archive",
 };
 
@@ -917,6 +919,24 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["pull request trusted environments shared credentials permissions read actions"],
   },
   {
+    id: "fleet-machines",
+    title: "Machines",
+    to: "/settings/fleet",
+    searchTerms: ["fleet environments compare health versions same equivalent drift"],
+  },
+  {
+    id: "fleet-differences",
+    title: "Differences",
+    to: "/settings/fleet",
+    searchTerms: ["fleet drift mismatch behind outdated signed out logged out skills missing"],
+  },
+  {
+    id: "fleet-providers",
+    title: "Providers by machine",
+    to: "/settings/fleet",
+    searchTerms: ["fleet provider versions claude codex matrix environments"],
+  },
+  {
     id: "archive",
     title: "Archived threads",
     to: "/settings/archived",
@@ -941,6 +961,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/source-control": "environment-defaults",
   "/settings/storage": "project-defaults",
   "/settings/connections": "connections",
+  "/settings/fleet": null,
   "/settings/scheduled-tasks": null,
   "/settings/archived": "project-defaults",
 };
