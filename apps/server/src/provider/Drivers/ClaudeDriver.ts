@@ -346,6 +346,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv> = {
         accentColor,
         enabled,
         snapshot,
+        // ClaudeSkills scans the same `<config dir>/skills` as the user scope.
+        personalSkillsDirectory: path.join(configDir, "skills"),
         invalidateCaches: Cache.invalidateAll(capabilitiesProbeCache),
         snapshotForCwd: (cwd: string) =>
           snapshot.getSnapshot.pipe(

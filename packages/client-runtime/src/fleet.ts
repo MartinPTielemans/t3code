@@ -36,7 +36,19 @@ export type FleetFindingAction =
       readonly instanceId: ProviderInstanceId;
       readonly driver: ProviderDriverKind;
     }
-  | { readonly kind: "open-provider-settings"; readonly instanceId: ProviderInstanceId };
+  | { readonly kind: "open-provider-settings"; readonly instanceId: ProviderInstanceId }
+  | {
+      readonly kind: "copy-skills";
+      /** The instance on the finding's environment that receives the skills. */
+      readonly instanceId: ProviderInstanceId;
+      readonly skills: ReadonlyArray<{
+        readonly name: string;
+        readonly from: {
+          readonly environmentId: EnvironmentId;
+          readonly instanceId: ProviderInstanceId;
+        };
+      }>;
+    };
 
 export interface FleetFinding {
   /** Stable per environment, so a list keyed by it keeps its rows across refreshes. */
@@ -325,15 +337,25 @@ function skillFindings(
   labelOf: (id: EnvironmentId) => string,
 ): FleetFinding[] {
   const out: FleetFinding[] = [];
-  const perDriver = new Map<
-    ProviderDriverKind,
-    Array<{ environmentId: EnvironmentId; providerLabel: string; skills: Set<string> }>
-  >();
+  interface DriverSkills {
+    readonly environmentId: EnvironmentId;
+    readonly canTransfer: boolean;
+    /** The first enabled instance of the driver: where copied skills go. */
+    readonly instanceId: ProviderInstanceId;
+    readonly providerLabel: string;
+    readonly skills: Set<string>;
+  }
+  const perDriver = new Map<ProviderDriverKind, DriverSkills[]>();
   for (const member of reporting) {
-    const byDriver = new Map<ProviderDriverKind, { providerLabel: string; skills: Set<string> }>();
+    const canTransfer = member.serverConfig.environment.capabilities.providerSkillTransfer === true;
+    const byDriver = new Map<
+      ProviderDriverKind,
+      Omit<DriverSkills, "environmentId" | "canTransfer">
+    >();
     for (const provider of member.serverConfig.providers) {
       if (!provider.enabled || !provider.installed) continue;
       const entry = byDriver.get(provider.driver) ?? {
+        instanceId: provider.instanceId,
         providerLabel: fleetProviderLabel(provider),
         skills: new Set<string>(),
       };
@@ -345,24 +367,40 @@ function skillFindings(
     for (const [driver, entry] of byDriver) {
       perDriver.set(driver, [
         ...(perDriver.get(driver) ?? []),
-        { environmentId: member.environmentId, ...entry },
+        { environmentId: member.environmentId, canTransfer, ...entry },
       ]);
     }
   }
   for (const [driver, members] of perDriver) {
     if (members.length < 2) continue;
     for (const member of members) {
-      const missing = new Map<string, string[]>();
+      const missing = new Map<string, DriverSkills[]>();
       for (const other of members) {
         if (other.environmentId === member.environmentId) continue;
         for (const skill of other.skills) {
           if (member.skills.has(skill)) continue;
-          missing.set(skill, [...(missing.get(skill) ?? []), labelOf(other.environmentId)]);
+          missing.set(skill, [...(missing.get(skill) ?? []), other]);
         }
       }
       if (missing.size === 0) continue;
       const names = [...missing.keys()].sort();
-      const sources = [...new Set([...missing.values()].flat())];
+      const sources = [
+        ...new Set([...missing.values()].flat().map((s) => labelOf(s.environmentId))),
+      ];
+      // Copyable when this machine and, per skill, some machine that has it can transfer.
+      const copies = member.canTransfer
+        ? names.flatMap((skill) => {
+            const from = missing.get(skill)?.find((source) => source.canTransfer);
+            return from
+              ? [
+                  {
+                    name: skill,
+                    from: { environmentId: from.environmentId, instanceId: from.instanceId },
+                  },
+                ]
+              : [];
+          })
+        : [];
       out.push({
         key: `skills-missing:${driver}`,
         environmentId: member.environmentId,
@@ -370,6 +408,15 @@ function skillFindings(
         area: "skills",
         title: `${names.length} ${member.providerLabel} skill${names.length === 1 ? " is" : "s are"} missing here`,
         detail: `${listSome(names)}, from ${joinNames(sources)}.`,
+        ...(copies.length > 0
+          ? {
+              action: {
+                kind: "copy-skills",
+                instanceId: member.instanceId,
+                skills: copies,
+              } as const,
+            }
+          : {}),
       });
     }
   }

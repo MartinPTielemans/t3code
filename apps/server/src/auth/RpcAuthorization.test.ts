@@ -106,6 +106,17 @@ describe("RPC authorization scopes", () => {
     );
   });
 
+  it("treats copying a skill's contents in or out as provider management", () => {
+    // An exported skill can carry anything the user keeps in it, so reading one
+    // is not a plain orchestration read.
+    expect(requiredScopeForRpcMethod(WS_METHODS.serverExportProviderSkill)).toBe(
+      AuthProvidersManageScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.serverImportProviderSkill)).toBe(
+      AuthProvidersManageScope,
+    );
+  });
+
   it("reads the reviewer menu under the same scope as the pull request it belongs to", () => {
     // The candidate list is a read like the detail beside it, and asking somebody for a review is
     // a write like every other pull request operation.

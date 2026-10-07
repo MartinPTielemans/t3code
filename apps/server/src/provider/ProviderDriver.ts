@@ -80,6 +80,11 @@ export interface ProviderInstance {
   readonly accentColor?: string | undefined;
   readonly enabled: boolean;
   readonly snapshot: ServerProviderShape;
+  /**
+   * Where this instance's CLI loads the user's own skills, one directory per
+   * skill. Absent for drivers whose personal skills T3 cannot copy in.
+   */
+  readonly personalSkillsDirectory?: string;
   readonly snapshotForCwd?: (
     cwd: string,
   ) => Effect.Effect<ProviderWorkspaceSnapshot, ProviderDriverError>;
