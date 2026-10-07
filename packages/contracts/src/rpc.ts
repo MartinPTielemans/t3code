@@ -159,6 +159,13 @@ import {
 } from "./provider.ts";
 import { ProviderInstanceId, ProviderInstanceMutation } from "./providerInstance.ts";
 import {
+  ProviderSkillBundle,
+  ProviderSkillExportInput,
+  ProviderSkillImportInput,
+  ProviderSkillImportResult,
+  ProviderSkillTransferError,
+} from "./providerSkillTransfer.ts";
+import {
   PullRequestActionInput,
   PullRequestActivity,
   PullRequestCommentInput,
@@ -455,6 +462,8 @@ export const WS_METHODS = {
   serverGetConfig: "server.getConfig",
   serverRefreshProviders: "server.refreshProviders",
   serverUpdateProvider: "server.updateProvider",
+  serverExportProviderSkill: "server.exportProviderSkill",
+  serverImportProviderSkill: "server.importProviderSkill",
   serverUpdateServer: "server.updateServer",
   serverUpdateServerWithProgress: "server.updateServerWithProgress",
   serverCommitDesktopUpdate: "server.commitDesktopUpdate",
@@ -614,6 +623,18 @@ const WsServerUpdateProviderRpc = Rpc.make(WS_METHODS.serverUpdateProvider, {
   payload: ServerProviderUpdateInput,
   success: ServerProviderUpdatedPayload,
   error: Schema.Union([ServerProviderUpdateError, EnvironmentAuthorizationError]),
+});
+
+const WsServerExportProviderSkillRpc = Rpc.make(WS_METHODS.serverExportProviderSkill, {
+  payload: ProviderSkillExportInput,
+  success: ProviderSkillBundle,
+  error: Schema.Union([ProviderSkillTransferError, EnvironmentAuthorizationError]),
+});
+
+const WsServerImportProviderSkillRpc = Rpc.make(WS_METHODS.serverImportProviderSkill, {
+  payload: ProviderSkillImportInput,
+  success: ProviderSkillImportResult,
+  error: Schema.Union([ProviderSkillTransferError, EnvironmentAuthorizationError]),
 });
 
 const ProviderSetupRpcError = Schema.Union([ProviderSetupError, EnvironmentAuthorizationError]);
@@ -1827,6 +1848,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
   WsServerUpdateProviderRpc,
+  WsServerExportProviderSkillRpc,
+  WsServerImportProviderSkillRpc,
   WsProviderConsumeResetCreditRpc,
   WsProviderAuthStartRpc,
   WsProviderAuthCompleteRpc,

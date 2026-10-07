@@ -101,6 +101,68 @@ function UpdateProviderButton({ finding }: { readonly finding: FleetFinding }) {
   );
 }
 
+/**
+ * Copies each missing skill from a machine that has it: export there, import
+ * here. Skills already present are refused by the server, never overwritten.
+ */
+function CopySkillsButton({ finding }: { readonly finding: FleetFinding }) {
+  const action = finding.action;
+  const canManageHere = useEnvironmentScope(finding.environmentId, AuthProvidersManageScope);
+  const exportSkill = useAtomCommand(serverEnvironment.exportProviderSkill, {
+    reportFailure: false,
+  });
+  const importSkill = useAtomCommand(serverEnvironment.importProviderSkill, {
+    reportFailure: false,
+  });
+  const [pending, setPending] = useState(false);
+  if (action?.kind !== "copy-skills") return null;
+  const copy = async () => {
+    setPending(true);
+    const failed: string[] = [];
+    try {
+      for (const skill of action.skills) {
+        const exported = await exportSkill({
+          environmentId: skill.from.environmentId,
+          input: { instanceId: skill.from.instanceId, name: skill.name },
+        });
+        if (exported._tag === "Failure") {
+          if (!isAtomCommandInterrupted(exported)) failed.push(skill.name);
+          continue;
+        }
+        const imported = await importSkill({
+          environmentId: finding.environmentId,
+          input: { instanceId: action.instanceId, skill: exported.value },
+        });
+        if (imported._tag === "Failure" && !isAtomCommandInterrupted(imported)) {
+          failed.push(skill.name);
+        }
+      }
+    } finally {
+      setPending(false);
+    }
+    const copied = action.skills.length - failed.length;
+    toastManager.add(
+      failed.length === 0
+        ? { type: "success", title: `Copied ${copied} skill${copied === 1 ? "" : "s"}` }
+        : {
+            type: "error",
+            title: `Could not copy ${failed.length} skill${failed.length === 1 ? "" : "s"}`,
+            description: failed.join(", "),
+          },
+    );
+  };
+  return (
+    <Button
+      size="xs"
+      variant="outline"
+      disabled={!canManageHere || pending}
+      onClick={() => void copy()}
+    >
+      {pending ? "Copying…" : "Copy here"}
+    </Button>
+  );
+}
+
 function FindingAction({
   finding,
   environment,
@@ -126,6 +188,8 @@ function FindingAction({
       );
     case "update-provider":
       return <UpdateProviderButton finding={finding} />;
+    case "copy-skills":
+      return <CopySkillsButton finding={finding} />;
     case "open-provider-settings":
       return (
         <Button

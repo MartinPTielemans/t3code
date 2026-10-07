@@ -38,6 +38,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.threadHandoffOptions]: "threadHandoff",
   [WS_METHODS.threadHandoffStart]: "threadHandoff",
   [WS_METHODS.threadHandoffCancel]: "threadHandoff",
+  [WS_METHODS.serverExportProviderSkill]: "provider",
+  [WS_METHODS.serverImportProviderSkill]: "provider",
   [WS_METHODS.providerAuthStart]: "provider",
   [WS_METHODS.providerConsumeResetCredit]: "provider",
   [WS_METHODS.providerAuthComplete]: "provider",

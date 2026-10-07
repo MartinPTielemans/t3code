@@ -34,6 +34,7 @@ const member = (
     providers?: ReadonlyArray<ServerProvider>;
     connected?: boolean;
     enabled?: boolean;
+    skillTransfer?: boolean;
   } = {},
 ): FleetMember => ({
   environmentId: EnvironmentId.make(id),
@@ -44,7 +45,7 @@ const member = (
     environment: {
       serverVersion: options.version ?? "0.9.0",
       ...(options.protocol === undefined ? {} : { orchestrationProtocolVersion: options.protocol }),
-      capabilities: {},
+      capabilities: options.skillTransfer ? { providerSkillTransfer: true } : {},
     },
     providers: options.providers ?? [claude()],
   } as unknown as ServerConfig,
@@ -160,6 +161,26 @@ describe("diagnoseFleet", () => {
     expect(findings).toMatchObject([
       { environmentId: "server", key: "skills-missing:claudeAgent", detail: "tdd, from laptop." },
     ]);
+  });
+
+  it("offers to copy missing skills only between machines that can transfer them", () => {
+    const tdd = {
+      name: "tdd",
+      path: "/u/.claude/skills/tdd/SKILL.md",
+      scope: "user",
+      enabled: true,
+    };
+    const copyAction = (laptopCan: boolean) =>
+      diagnoseFleet([
+        member("laptop", { skillTransfer: laptopCan, providers: [claude({ skills: [tdd] })] }),
+        member("server", { skillTransfer: true }),
+      ]).findings[0]?.action;
+    expect(copyAction(true)).toEqual({
+      kind: "copy-skills",
+      instanceId: "claudeAgent",
+      skills: [{ name: "tdd", from: { environmentId: "laptop", instanceId: "claudeAgent" } }],
+    });
+    expect(copyAction(false)).toBeUndefined();
   });
 
   it("reports an unreachable machine and compares only those that report", () => {
