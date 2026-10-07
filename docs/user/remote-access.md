@@ -226,6 +226,45 @@ Claude Code, Codex, ChatGPT and other agents T3 Code did not start can drive
 threads on an environment through its MCP server. See
 [outside agents](./outside-agents.md) for setup.
 
+## Link another environment
+
+Link two machines, such as your laptop and a VPS, and agents on one can launch,
+message, wait on and stop threads on the other. On the machine you will work
+from, open **Settings → Connections → Linked environments**, choose **Link**,
+and enter the other machine's address and a pairing code from it. From a
+terminal, use `t3 environment link <address> --pairing-code <code> --access <mode>`.
+
+- The access you pick is the most agents from this machine may do there. An
+  agent also never gets more there than its own mode here.
+- Threads a link starts are marked **From <machine>** there. They can change
+  only other threads the same link started, not that machine's own threads,
+  projects or settings, and they skip its project setup scripts.
+- The link shows up in that machine's **Settings → Connections** like any
+  outside agent. Revoke it there to end it. **Forget** on this machine only
+  removes it here.
+- Links last 30 days. Link again with a new pairing code to renew one.
+
+### Continue a thread on another machine
+
+A thread can move to a linked machine with its conversation and its code:
+commits you have not pushed, uncommitted edits and new files. It continues
+there in a new worktree of the project with the same repository, and the copy
+here becomes read-only with a link to it. Ignored files such as `.env` stay
+behind, and a move larger than 50 MB asks you to push the branch first.
+
+You can also tell the agent to move it, for example "I need to wrap up, move
+this to my VPS". It finishes its reply first, then the thread moves and picks
+up where it said it would. Sending a message before then cancels the move.
+
+If the other machine's branch has commits this one lacks, the move is refused
+and nothing changes on either side.
+
+An agent can also hand a task to a linked machine with `delegate_task`: it runs
+there as an ordinary thread, in the project with the same repository, and this
+thread wakes with its result when it ends, as for any delegated task. It keeps
+following the task across restarts. If the other machine revokes the link, the
+task fails with that reason.
+
 ## Manage or revoke access
 
 On the host, **Settings → Connections** lets authorized administrators create

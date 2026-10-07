@@ -1,24 +1,68 @@
-import { OrchestratorToolkit } from "./tools.ts";
+import { type EnvironmentId, OrchestratorMcpFailure } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import type { Tool } from "effect/ai";
 
+import { OrchestratorToolkit } from "./tools.ts";
+
+import * as PeerForwarding from "../../../peer/PeerForwarding.ts";
+import * as RemoteDelegation from "../../../peer/RemoteDelegation.ts";
+import * as ThreadHandoff from "../../../peer/handoff/ThreadHandoff.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
 import * as ThreadMetadataMcpService from "../../ThreadMetadataMcpService.ts";
 
+const { tools } = OrchestratorToolkit;
+
+/**
+ * Runs `here` in this environment, or the same tool in the linked
+ * environment `input.environmentId` names. The tool's declaration has already
+ * checked the caller here either way.
+ */
+const routed = <T extends (typeof tools)[keyof typeof tools], A, E, R>(
+  tool: T,
+  input: Tool.Parameters<T> & { readonly environmentId?: EnvironmentId | undefined },
+  here: Effect.Effect<A, E, R>,
+) =>
+  Effect.gen(function* () {
+    const scope = yield* McpInvocationContext.McpInvocationContext;
+    if (PeerForwarding.remoteTarget(scope, input.environmentId) === undefined) return yield* here;
+    const forwarding = yield* PeerForwarding.PeerForwarding;
+    return yield* forwarding.route(scope, tool, input, here);
+  });
+
 const handlers = {
-  orchestrator_capabilities: McpToolAccess.reads(() =>
-    Effect.gen(function* () {
-      const scope = yield* McpInvocationContext.McpInvocationContext;
-      const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-      return yield* service.capabilities(scope);
-    }),
+  orchestrator_capabilities: McpToolAccess.reads((input) =>
+    routed(
+      tools.orchestrator_capabilities,
+      input,
+      Effect.gen(function* () {
+        const scope = yield* McpInvocationContext.McpInvocationContext;
+        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+        return yield* service.capabilities(scope);
+      }),
+    ),
   ),
   delegate_task: McpToolAccess.actsAsCaller((input) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-      return yield* service.delegateTask(scope, input);
+      const target = input.target;
+      const environmentId =
+        target === undefined ? undefined : PeerForwarding.remoteTarget(scope, target.environmentId);
+      if (target === undefined || environmentId === undefined) {
+        return yield* service.delegateTask(scope, input);
+      }
+      // The task's child runs as an ordinary thread there; this thread keeps the task.
+      const threadScope = yield* McpInvocationContext.requireThreadScope(scope, "delegate_task");
+      const remote = yield* RemoteDelegation.RemoteDelegation;
+      const { taskId } = yield* remote.delegate(threadScope, {
+        ...input,
+        target: { ...target, environmentId },
+      });
+      return yield* input.mode === "wait"
+        ? service.awaitTask(threadScope, taskId, input.timeoutMs)
+        : service.taskStatus(scope, taskId);
     }),
   ),
   task_status: McpToolAccess.actsAsCaller(({ taskId }) =>
@@ -32,6 +76,12 @@ const handlers = {
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+      const remoteTask = yield* service.remoteTask(scope, input.taskId);
+      if (remoteTask !== undefined) {
+        const threadScope = yield* McpInvocationContext.requireThreadScope(scope, "task_cancel");
+        const remote = yield* RemoteDelegation.RemoteDelegation;
+        return yield* remote.cancel(threadScope, remoteTask, input.reason);
+      }
       return yield* service.cancelTask(scope, input);
     }),
   ),
@@ -44,6 +94,8 @@ const handlers = {
         const service = yield* OrchestratorMcpService.OrchestratorMcpService;
         return yield* service.scheduleTask(scope, input);
       }),
+    // A scheduled run starts long after its caller, with nothing to carry the link.
+    { refused: "schedule tasks in this environment" },
   ),
   list_scheduled_tasks: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
@@ -81,21 +133,29 @@ const handlers = {
     }),
   ),
   t3_thread_list: McpToolAccess.reads((input) =>
-    Effect.gen(function* () {
-      const scope = yield* McpInvocationContext.McpInvocationContext;
-      const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-      return yield* service.listThreads(scope, input);
-    }),
+    routed(
+      tools.t3_thread_list,
+      input,
+      Effect.gen(function* () {
+        const scope = yield* McpInvocationContext.McpInvocationContext;
+        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+        return yield* service.listThreads(scope, input);
+      }),
+    ),
   ),
   // Reading a child's finished result also acknowledges its delivery to the
   // reader's own thread. That is bookkeeping on the caller's own subagent, not
   // a change to anything it reads, so this stays a read.
   t3_thread_read: McpToolAccess.reads((input) =>
-    Effect.gen(function* () {
-      const scope = yield* McpInvocationContext.McpInvocationContext;
-      const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-      return yield* service.readThread(scope, input);
-    }),
+    routed(
+      tools.t3_thread_read,
+      input,
+      Effect.gen(function* () {
+        const scope = yield* McpInvocationContext.McpInvocationContext;
+        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+        return yield* service.readThread(scope, input);
+      }),
+    ),
   ),
   t3_thread_update: McpToolAccess.writesThreads(
     (input) => [input.threadId],
@@ -107,29 +167,89 @@ const handlers = {
       }),
   ),
   t3_thread_send: McpToolAccess.writesThreads(
-    (input) => [input.threadId],
+    // A thread in a linked environment is checked there, where it lives.
+    (input) => (input.environmentId === undefined ? [input.threadId] : []),
     (input) =>
-      Effect.gen(function* () {
-        const scope = yield* McpInvocationContext.McpInvocationContext;
-        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-        return yield* service.sendToThread(scope, input);
-      }),
+      routed(
+        tools.t3_thread_send,
+        input,
+        Effect.gen(function* () {
+          const scope = yield* McpInvocationContext.McpInvocationContext;
+          const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+          return yield* service.sendToThread(scope, input);
+        }),
+      ),
   ),
   t3_thread_wait: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
+      const target = PeerForwarding.remoteTarget(scope, input.environmentId);
+      if (target !== undefined) {
+        const forwarding = yield* PeerForwarding.PeerForwarding;
+        return yield* forwarding.waitForThread(scope, target, input);
+      }
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
       return yield* service.waitForThread(scope, input);
     }),
   ),
-  t3_thread_interrupt: McpToolAccess.writesThreads(
+  t3_thread_handoff: McpToolAccess.writesThreads(
     (input) => [input.threadId],
     (input) =>
       Effect.gen(function* () {
         const scope = yield* McpInvocationContext.McpInvocationContext;
-        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-        return yield* service.interruptThread(scope, input);
+        const own = input.threadId === undefined || input.threadId === scope.thread?.threadId;
+        const threadId = input.threadId ?? scope.thread?.threadId;
+        if (threadId === undefined) {
+          return yield* new OrchestratorMcpFailure({
+            code: "target_required",
+            message: "Pass threadId: this MCP client is not running inside a T3 thread.",
+          });
+        }
+        const handoff = yield* ThreadHandoff.ThreadHandoff;
+        const state = yield* handoff.start({
+          threadId,
+          environmentId: input.environmentId,
+          projectId: input.projectId,
+          continuationPrompt: input.continuationPrompt,
+          // The calling thread is mid-turn: it moves once this turn ends.
+          whenTurnEnds: own,
+        });
+        return {
+          state: state.state,
+          environmentId: state.environmentId,
+          label: state.label,
+          threadId: state.state === "departed" ? state.threadId : null,
+          message:
+            state.state === "pending"
+              ? `This thread moves to ${state.label} when this turn ends. End the turn now; a message from the user before then cancels the move.`
+              : state.state === "departed"
+                ? `The thread moved to ${state.label}.`
+                : state.state === "failed"
+                  ? `The move failed: ${state.lastError}`
+                  : `The thread is moving to ${state.label}.`,
+        };
       }),
+  ),
+  t3_environment_links: McpToolAccess.reads(() =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const forwarding = yield* PeerForwarding.PeerForwarding;
+      return yield* forwarding.links(scope);
+    }),
+  ),
+  t3_thread_interrupt: McpToolAccess.writesThreads(
+    // A thread in a linked environment is checked there, where it lives.
+    (input) => (input.environmentId === undefined ? [input.threadId] : []),
+    (input) =>
+      routed(
+        tools.t3_thread_interrupt,
+        input,
+        Effect.gen(function* () {
+          const scope = yield* McpInvocationContext.McpInvocationContext;
+          const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+          return yield* service.interruptThread(scope, input);
+        }),
+      ),
   ),
 } satisfies McpToolAccess.Handlers<typeof OrchestratorToolkit.tools>;
 

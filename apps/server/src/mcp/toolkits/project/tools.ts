@@ -13,12 +13,18 @@ import {
   ProjectCreatePayload,
   ProjectUpdatePayload,
   ProjectId,
+  OrchestratorMcpClientRequestId,
+  OrchestratorMcpEnvironmentTarget,
   OrchestratorMcpFailure,
+  OrchestratorMcpThreadImportInput,
+  OrchestratorMcpThreadImportResult,
   SourceControlCloneRepositoryInput,
   SourceControlCloneRepositoryResult,
 } from "@t3tools/contracts";
 import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as ServerConfig from "../../../config.ts";
+import * as ThreadImportService from "../../../orchestration-v2/ThreadImportService.ts";
 import * as ThreadLaunchService from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as Crypto from "effect/Crypto";
 import * as Schema from "effect/Schema";
@@ -26,8 +32,11 @@ import { Tool, Toolkit } from "effect/ai";
 import * as ProjectService from "../../../project/ProjectService.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
+import * as PeerForwarding from "../../../peer/PeerForwarding.ts";
 import * as SourceControlRepositoryService from "../../../sourceControl/SourceControlRepositoryService.ts";
+import * as Settings from "../../../serverSettings.ts";
 import * as GitVcsDriver from "../../../vcs/GitVcsDriver.ts";
+import * as VcsProcess from "../../../vcs/VcsProcess.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
 const shared = {
@@ -44,8 +53,9 @@ const shared = {
 const ProjectListTool = Tool.make("t3_project_list", {
   ...shared,
   description:
-    "List registered projects in this environment. Pages use the current project snapshot and may shift between calls.",
+    "List registered projects in this environment, or in a linked one with environmentId. Pages use the current project snapshot and may shift between calls.",
   parameters: Schema.Struct({
+    environmentId: OrchestratorMcpEnvironmentTarget,
     cursor: Schema.optional(NonNegativeInt),
     limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 }))),
   }),
@@ -53,6 +63,7 @@ const ProjectListTool = Tool.make("t3_project_list", {
     projects: Schema.Array(Project),
     nextCursor: Schema.NullOr(NonNegativeInt),
   }),
+  dependencies: [...shared.dependencies, PeerForwarding.PeerForwarding],
 })
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false);
@@ -103,8 +114,9 @@ const ProjectCloneTool = Tool.make("t3_project_clone", {
 const ThreadLaunchTool = Tool.make("t3_thread_launch", {
   ...shared,
   description:
-    'Create an ordinary TOP-LEVEL thread with an explicit workspace binding before its agent starts. Use this when the user requests independent work, a new thread, or a PR stack in its own worktree; use delegate_task for child subagents. Set workspaceStrategy to {type:"worktree",baseRef:"parent-branch",branch:"new-branch",startFromOrigin:false} for a new worktree based on local commits, or {type:"existing_worktree",worktreePath:"/absolute/path",branch:"existing-branch"} to use an existing checkout. For upstream commits, set startFromOrigin:true. Omitted workspaceStrategy means the project root, NOT the caller\'s worktree. Omit projectId/modelSelection/modes to inherit those settings from the calling thread; a caller outside a T3 thread must pass projectId and gets the project\'s default model. Set scratch:true instead of projectId for a thread without a project: it runs in a fresh folder of its own, outside any repository. Put the task in message. Do not ask the agent to create its own worktree via shell: that does not update the thread binding. Each call creates a new launch with no retry key; retain threadId and use t3_thread_read/t3_thread_wait to follow preparation. After errors or lost responses, inspect t3_thread_list before retrying. Attachments must be pending uploads. The new thread may not run with broader runtime or interaction modes than the caller: the calling T3 thread\'s own modes, or the permission mode an outside agent was approved with.',
+    'Create an ordinary TOP-LEVEL thread with an explicit workspace binding before its agent starts. Use this when the user requests independent work, a new thread, or a PR stack in its own worktree; use delegate_task for child subagents. Set workspaceStrategy to {type:"worktree",baseRef:"parent-branch",branch:"new-branch",startFromOrigin:false} for a new worktree based on local commits, or {type:"existing_worktree",worktreePath:"/absolute/path",branch:"existing-branch"} to use an existing checkout. For upstream commits, set startFromOrigin:true. Omitted workspaceStrategy means the project root, NOT the caller\'s worktree. Omit projectId/modelSelection/modes to inherit those settings from the calling thread; a caller outside a T3 thread must pass projectId and gets the project\'s default model. Set scratch:true instead of projectId for a thread without a project: it runs in a fresh folder of its own, outside any repository. Put the task in message. Do not ask the agent to create its own worktree via shell: that does not update the thread binding. Pass clientRequestId to retry safely: the same key returns the thread the first call created instead of launching another. Retain threadId and use t3_thread_read/t3_thread_wait to follow preparation. Attachments must be pending uploads. The new thread may not run with broader runtime or interaction modes than the caller: the calling T3 thread\'s own modes, or the permission mode an outside agent was approved with. Pass environmentId to launch in a linked environment; projectId and modelSelection then name that environment\'s project and providers (t3_project_list and orchestrator_capabilities with the same environmentId list them), and attachments are not supported.',
   parameters: Schema.Struct({
+    environmentId: OrchestratorMcpEnvironmentTarget,
     projectId: Schema.optional(ProjectId),
     scratch: Schema.optional(
       Schema.Boolean.annotate({
@@ -129,6 +141,7 @@ const ThreadLaunchTool = Tool.make("t3_thread_launch", {
       }),
     ),
     attachments: Schema.optional(Schema.Array(McpAttachmentInput).check(Schema.isMaxLength(8))),
+    clientRequestId: Schema.optional(OrchestratorMcpClientRequestId),
   }),
   success: Schema.Struct({
     threadId: ThreadId,
@@ -144,13 +157,35 @@ const ThreadLaunchTool = Tool.make("t3_thread_launch", {
     GitVcsDriver.GitVcsDriver,
     FileSystem.FileSystem,
     ServerConfig.ServerConfig,
+    PeerForwarding.PeerForwarding,
   ],
 })
   .annotate(Tool.Destructive, true)
   .annotate(Tool.OpenWorld, true);
 
+const ThreadImportTool = Tool.make("t3_thread_import", {
+  ...shared,
+  description:
+    "Create a thread here that continues a conversation from another T3 Code environment, as when a thread is handed off to this one. The messages become the thread's history and its first run gets them as context; continuationPrompt, if given, starts that run. Retrying with the same source returns the thread the first call created. It runs within the caller's modes.",
+  parameters: OrchestratorMcpThreadImportInput,
+  success: OrchestratorMcpThreadImportResult,
+  dependencies: [
+    ...shared.dependencies,
+    ThreadImportService.ThreadImportService,
+    GitVcsDriver.GitVcsDriver,
+    FileSystem.FileSystem,
+    Path.Path,
+    ServerConfig.ServerConfig,
+    Settings.ServerSettingsService,
+    VcsProcess.VcsProcess,
+  ],
+})
+  .annotate(Tool.Destructive, true)
+  .annotate(Tool.Idempotent, true);
+
 export const ProjectToolkit = Toolkit.make(
   ThreadLaunchTool,
+  ThreadImportTool,
   ProjectListTool,
   ProjectReadTool,
   ProjectCreateTool,

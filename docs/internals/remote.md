@@ -11,7 +11,8 @@ not introduce another execution model. See
 An environment keeps its ID across server restarts and endpoint changes. Saved
 connections are local to a client profile; the server's identity and state are
 not. A repository identity can correlate clones across environments, but never
-routes work between them. A project and its threads belong to one environment.
+routes work between them. A project and its threads belong to one environment;
+an agent reaches another environment's threads only through a peer link.
 The canonical key follows the `upstream` remote when one exists, so pull request
 features target the repository a fork tracks. A fork also reports its own
 `origin`, and clients group and label by that, so a fork never collapses into a
@@ -54,6 +55,71 @@ learned route still has to answer as this environment before it is used.
 
 GitHub routing trust covers the whole route list. Adding or changing a route
 revokes it; reordering does not, because the same addresses remain trusted.
+
+## Peer links
+
+A [peer link](../../apps/server/src/peer/PeerLinks.ts) lets one environment's
+agents work in another. The linking environment signs in to the other's `/mcp`
+as an outside MCP client, with a pairing code from it, and keeps that session's
+token in its own secret store. The other environment needs nothing new: it
+sees one more OAuth client, lists it in Connections, and revokes it there.
+Unlinking on the linking side only forgets the token.
+
+- **Every forwarded call carries the calling agent's modes** in
+  `T3-Mode-Limit`, which the receiving `/mcp` only ever narrows the client's
+  approved access with. A plan-mode agent therefore cannot start full-access
+  work through a full-access link. The tool's own access declaration also
+  runs on the linking side first, so a read-only or ended caller is refused
+  before anything is sent.
+- **The token goes only to an address that proves it is the linked
+  environment**: its descriptor must report the linked environment id. A LAN
+  address that now belongs to another machine never receives it.
+- **All callers on one side share the link's single session on the other**,
+  so idempotency keys are hashed with the caller's namespace before they
+  leave. Without that, two agents reusing a key would collide on the far side.
+- **A forwarded wait is split into calls of at most 50 s**, because the
+  receiving `/mcp` sends nothing while a wait is open and T3 Connect's edge
+  drops idle requests after about 100 s.
+
+**Work a link starts stays within that link.** The receiving environment knows a
+session is a peer link because the linking side registers its OAuth client with
+the `t3code-peer-link` software id, and the marker is signed into the session.
+Threads that session launches carry it as an immutable `linkOrigin`, and so do
+the subagents, forks and `create_threads` they derive. The rules live in
+[`mcp/linkOrigin.ts`](../../apps/server/src/mcp/linkOrigin.ts) and run in the
+shared access declarations, not tool by tool:
+
+- linked work may change only threads with the same origin, not the user's own
+  threads and not another link's;
+- it cannot change projects, settings or scheduled tasks;
+- its project setup scripts are skipped
+  ([`ProjectSetupScriptRunner`](../../apps/server/src/project/ProjectSetupScriptRunner.ts)
+  checks every path that runs them).
+
+Reads are not fenced, and a client's own `thread.create` can never carry
+`linkOrigin`.
+
+**A delegated task can run in a linked environment.** Its child is then an
+ordinary thread there, so the parent here records the task without a child
+thread of its own (`remoteChild` instead of `childThreadId`). A follower in
+[`RemoteDelegation`](../../apps/server/src/peer/RemoteDelegation.ts) waits on
+that thread and completes the task with `delegated_task.remote.complete`. That
+internal command reuses the parent half of a local finalize, so the parent
+wakes the same way. Open remote tasks are followed again at startup, which is
+also what keeps restart recovery from treating them as abandoned provider work.
+
+**A thread moves with exactly one live copy.** [`ThreadHandoff`](../../apps/server/src/peer/handoff/ThreadHandoff.ts)
+marks the thread `departing`, which the orchestrator refuses new turns for,
+packs its git work with [`HandoffGit`](../../apps/server/src/peer/handoff/HandoffGit.ts),
+uploads the bundle through the other side's signed attachment route, and calls
+its `t3_thread_import`. Only then is the thread `departed` here. Any failure
+marks it `failed`, which takes turns again. Import ids derive from the handoff,
+so a move that a restart cut short is retried by the startup sweep without
+creating a second thread there. An agent's move of its own thread waits as
+`pending` until its run ends, and a user message in between cancels it.
+
+The link is routing, not isolation: an agent the link starts runs as the
+receiving environment's user, inside the limits above.
 
 ## Hosted web is a client
 

@@ -95,6 +95,7 @@ import {
   formatDesktopSshTarget,
 } from "./EnvironmentRow";
 import { FoldedSettingsSection } from "./FoldedSettingsSection";
+import { LinkedEnvironmentsSettings } from "./LinkedEnvironmentsSettings";
 import { LoadBalancingSettings } from "./LoadBalancingSettings";
 import { GitHubRoutingSettings } from "./GitHubRoutingSettings";
 import { Input } from "../ui/input";
@@ -4209,6 +4210,11 @@ export function ConnectionsSettings() {
             void removeSavedBackend(pendingT3ConnectRemoval);
           }}
         />
+      ) : null}
+      {canManageLocalBackend &&
+      primaryEnvironmentId !== null &&
+      primaryServerConfig?.environment.capabilities.peerLinks === true ? (
+        <LinkedEnvironmentsSettings environmentId={primaryEnvironmentId} />
       ) : null}
       <LoadBalancingSettings environments={loadBalancingEnvironments} />
       <GitHubRoutingSettings environments={loadBalancingEnvironments} />
