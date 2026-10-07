@@ -149,13 +149,6 @@ export const normalizeMcpHttpResponse = (
 // Session tokens are `<payload>.<signature>`; registry tokens are a bare base64url secret.
 const looksLikeProviderToken = (token: string) => token.length > 0 && !token.includes(".");
 
-/**
- * `T3-Mode-Limit: <runtimeMode>/<interactionMode>` lets an OAuth client cap
- * this request below what it was approved with: another environment passes on
- * the limits of the agent it calls for. It can only narrow (see
- * `clientModeCeiling`), so a client gains nothing by sending a broad one.
- */
-export const MODE_LIMIT_HEADER = "t3-mode-limit";
 const decodeModeLimit = Schema.decodeUnknownOption(
   Schema.Struct({ runtimeMode: RuntimeMode, interactionMode: ProviderInteractionMode }),
 );
@@ -177,7 +170,7 @@ const withModeLimit = (
   invocation: McpInvocationContext.McpInvocationScope,
   request: HttpServerRequest.HttpServerRequest,
 ): McpInvocationContext.McpInvocationScope | undefined => {
-  const header = request.headers[MODE_LIMIT_HEADER];
+  const header = request.headers[McpInvocationContext.MODE_LIMIT_HEADER];
   if (header === undefined || invocation.client === undefined) return invocation;
   const limit = parseModeLimit(header);
   return Option.isNone(limit)
@@ -856,7 +849,7 @@ const layerEnvironmentRegistration = toolkitRegistration(
   EnvironmentHandlers.layer,
 );
 
-const layerProjectRegistration = toolkitRegistration(ProjectToolkit, ProjectHandlers.layer);
+export const layerProjectRegistration = toolkitRegistration(ProjectToolkit, ProjectHandlers.layer);
 
 const layerAttachmentRegistration = toolkitRegistration(
   AttachmentToolkit,

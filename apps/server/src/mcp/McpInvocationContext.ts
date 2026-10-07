@@ -41,6 +41,14 @@ export interface McpClientCaller {
   readonly narrowedTo?: ClientModes | undefined;
 }
 
+/**
+ * `T3-Mode-Limit: <runtimeMode>/<interactionMode>` lets an OAuth client cap
+ * a request below what it was approved with: another environment passes on
+ * the limits of the agent it calls for. It can only narrow (see
+ * `clientModeCeiling`), so a client gains nothing by sending a broad one.
+ */
+export const MODE_LIMIT_HEADER = "t3-mode-limit";
+
 export interface ClientModes {
   readonly runtimeMode: RuntimeMode;
   readonly interactionMode: ProviderInteractionMode;

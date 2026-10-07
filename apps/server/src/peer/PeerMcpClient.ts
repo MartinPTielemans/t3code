@@ -12,7 +12,7 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import { HttpBody, HttpClient, HttpClientRequest } from "effect/http";
 
-import { MODE_LIMIT_HEADER } from "../mcp/McpHttpServer.ts";
+import { MODE_LIMIT_HEADER } from "../mcp/McpInvocationContext.ts";
 import * as PeerLinks from "./PeerLinks.ts";
 
 /** The only MCP protocol version a T3 Code `/mcp` registers. */
