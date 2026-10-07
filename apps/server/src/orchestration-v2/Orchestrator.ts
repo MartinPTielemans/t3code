@@ -379,6 +379,9 @@ function wakeWorkStartedAt(
   return previous === undefined ? {} : { workStartedAt: orchestrationV2RunWorkStartedAt(previous) };
 }
 
+/** Message ids of the compaction turn a pull request watch queued before waiting. */
+const PULL_REQUEST_WATCH_COMPACTION_PREFIX = "pr-watch-compact:";
+
 /** A native /compact or /logout turn: provider maintenance, not agent work. */
 export function isNativeMaintenanceCommand(message: {
   readonly text: string;
@@ -1241,6 +1244,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     });
 
   const startNextQueuedRun = (threadId: ThreadId, options?: { readonly failedRunId?: RunId }) =>
+    startQueuedRunOnce(threadId, options).pipe(
+      Effect.flatMap((result) =>
+        result === "skipped" ? startQueuedRunOnce(threadId, options) : Effect.void,
+      ),
+    );
+
+  const startQueuedRunOnce = (threadId: ThreadId, options?: { readonly failedRunId?: RunId }) =>
     Effect.gen(function* () {
       // Every terminal run checks the queue. Only a deliverable queued run
       // needs the transcript for provider handoff and legacy import context.
@@ -1344,26 +1354,38 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         });
       }
 
-      // An async question or approval can arrive after the watch queued its compaction.
-      // Hold the queue so a delayed answer cannot silently buy a possibly cold compaction.
+      // A question or approval that arrived after the watch queued its compaction drops the
+      // compaction, so the answer runs next instead of waiting behind a possibly cold summary.
       if (
-        queuedMessage.createdBy === "agent" &&
-        queuedMessage.creationSource === "server" &&
-        queuedMessage.text.trim().toLowerCase() === "/compact" &&
+        queuedMessage.id.startsWith(PULL_REQUEST_WATCH_COMPACTION_PREFIX) &&
         projection.runtimeRequests.some((request) => request.status === "pending")
       ) {
         const now = yield* DateTime.now;
+        const base = {
+          threadId,
+          runId: queuedRun.id,
+          nodeId: rootNode.id,
+          providerInstanceId: queuedRun.providerInstanceId,
+          occurredAt: now,
+        };
         yield* writeSystemEvents([
           {
+            ...base,
             type: "run.updated",
-            threadId,
-            runId: queuedRun.id,
-            providerInstanceId: queuedRun.providerInstanceId,
-            occurredAt: now,
-            payload: { ...queuedRun, queueHeld: true },
+            payload: { ...queuedRun, status: "cancelled", queuePosition: null, completedAt: now },
+          },
+          {
+            ...base,
+            type: "run-attempt.updated",
+            payload: { ...attempt, status: "cancelled", completedAt: now },
+          },
+          {
+            ...base,
+            type: "node.updated",
+            payload: { ...rootNode, status: "cancelled", completedAt: now },
           },
         ]);
-        return;
+        return "skipped" as const;
       }
 
       const commandId = CommandId.make(`command:system:start-queued:${queuedRun.id}`);
@@ -2328,13 +2350,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       if (existing?.watch !== undefined) {
         return yield* dispatchThreadMutation(command, events, effects);
       }
-      const adapter = yield* providerAdapters
-        .get(projection.thread.providerInstanceId)
-        .pipe(mapDispatchError(command));
       const active = projection.runs.find(isBlockingRun);
       const latest = latestExecutedRun(projection.runs);
       if (
-        (adapter.driver !== "codex" && adapter.driver !== "claudeAgent") ||
         projection.runtimeRequests.some((request) => request.status === "pending") ||
         projection.runs.some((run) => run.status === "queued") ||
         (active !== undefined && active.status !== "running") ||
@@ -2347,7 +2365,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           commandId: command.commandId,
           commandType: command.type,
           cause:
-            "Compacting before waiting requires a Codex or Claude conversation with no pending input, approval, queued work, or unfinished maintenance.",
+            "Compacting before waiting requires a conversation with no pending input, approval, queued work, or unfinished maintenance. Watch without compaction instead.",
         });
       }
       // Commit the watch and the bounded maintenance request together. The ordinary queue
@@ -2358,7 +2376,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           type: "message.dispatch",
           commandId: command.commandId,
           threadId: command.threadId,
-          messageId: MessageId.make(`${command.commandId}:compact`),
+          messageId: MessageId.make(`${PULL_REQUEST_WATCH_COMPACTION_PREFIX}${command.commandId}`),
           text: "/compact",
           attachments: [],
           dispatchMode: { type: "queue_after_active" },

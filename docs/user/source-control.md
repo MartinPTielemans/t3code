@@ -211,14 +211,10 @@ watch. Subagents cannot watch pull requests; the thread that delegated to them d
 it yourself, use the row menu in the **Linked pull requests** panel. In the thread details card, a
 watched pull request shows an eye; click it to stop watching.
 
-For a long wait with a large Codex or Claude conversation, you can ask the agent to compact before
-waiting. The agent starts a new watch, then finishes its current turn before one normal compaction
-turn runs. The watch stays active. Compaction spends tokens and can discard
-conversation detail, so this is opt-in and does not run for ordinary watch requests. It may reduce
-how much history a later wake reads, but cannot guarantee cache reuse or savings. No keepalive
-requests are sent. You can cancel the queued compaction or press Stop as usual. If a question or
-approval arrives before compaction starts, the queue is held; answer it, then resume the queue or
-cancel the compaction.
+For a long wait in a large conversation, you can ask the agent to compact before waiting. It runs one
+compaction after its current turn, which spends tokens and can drop detail but may make later wakes
+cheaper. You can cancel the queued compaction like any queued message. If the agent asks you
+something before it runs, the compaction is skipped.
 
 A watched thread counts as working between wakes, so it stays in the **Working** section and does
 not auto-settle. Agents stop watching when they hand the work back to you, and the thread then

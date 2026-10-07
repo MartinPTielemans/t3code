@@ -37,6 +37,7 @@ import {
   PullRequestListFailedError,
   PullRequestNotOpenError,
   type PullRequestTargetInput,
+  type WatchPullRequestInput,
   PullRequestWatchFailedError,
   PullRequestWatchFromSubagentError,
   PullRequestThreadNotFoundError,
@@ -222,7 +223,7 @@ const make = Effect.gen(function* () {
    * result reports the state the thread holds afterwards.
    */
   const setWatching = Effect.fn("PullRequestsToolkit.setWatching")(function* (
-    input: PullRequestTargetInput & { readonly compactBeforeWaiting?: boolean | undefined },
+    input: WatchPullRequestInput,
     watching: boolean,
   ) {
     const thread = yield* requireThread(PullRequestWatchFailedError, input.threadId);

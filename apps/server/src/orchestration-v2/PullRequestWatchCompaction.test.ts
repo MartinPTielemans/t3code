@@ -135,64 +135,66 @@ it.layer(layerTest)("compaction before a PR wait", (it) => {
     }),
   );
 
-  it.effect.each(["codex", "claudeAgent"])("queues one compaction after the turn: %s", (driver) =>
-    Effect.gen(function* () {
-      const orchestrator = yield* Orchestrator.OrchestratorV2;
-      const { threadId, run } = yield* createConversation(driver);
-      yield* updateRun(run, "running");
-      yield* watch(threadId, true);
-      yield* watch(threadId, true, "repeat");
-      const before = yield* orchestrator.getThreadProjection(threadId);
-      assert.deepEqual(
-        before.messages.map((message) => message.text),
-        ["Preserve my pending work", "/compact"],
-      );
-      assert.deepEqual(
-        before.runs.map((run) => run.status),
-        ["running", "queued"],
-      );
-      assert.equal(yield* orchestrator.resumeQueuedRuns, 0);
-      const watched = before.thread.pullRequests?.[0]?.watch;
-      assert.isDefined(watched);
-      // Even PR news arriving before the original turn ends queues behind compaction.
-      yield* orchestrator.dispatch({
-        type: "thread.pull-request-watch.sync",
-        commandId: CommandId.make(`news:${threadId}`),
-        threadId,
-        ...key,
-        startedAt: watched!.startedAt,
-        watch: { ...watched!, headSha: "new-head" },
-        wake: {
-          messageId: MessageId.make(`news:${threadId}`),
-          text: "Review the failed check",
-          notification: {
-            source: { kind: "monitor" },
-            outcome: "updated",
-            summary: "#7: checks failed",
+  it.effect.each(["codex", "claudeAgent", "cursor"])(
+    "queues one compaction after the turn: %s",
+    (driver) =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const { threadId, run } = yield* createConversation(driver);
+        yield* updateRun(run, "running");
+        yield* watch(threadId, true);
+        yield* watch(threadId, true, "repeat");
+        const before = yield* orchestrator.getThreadProjection(threadId);
+        assert.deepEqual(
+          before.messages.map((message) => message.text),
+          ["Preserve my pending work", "/compact"],
+        );
+        assert.deepEqual(
+          before.runs.map((run) => run.status),
+          ["running", "queued"],
+        );
+        assert.equal(yield* orchestrator.resumeQueuedRuns, 0);
+        const watched = before.thread.pullRequests?.[0]?.watch;
+        assert.isDefined(watched);
+        // Even PR news arriving before the original turn ends queues behind compaction.
+        yield* orchestrator.dispatch({
+          type: "thread.pull-request-watch.sync",
+          commandId: CommandId.make(`news:${threadId}`),
+          threadId,
+          ...key,
+          startedAt: watched!.startedAt,
+          watch: { ...watched!, headSha: "new-head" },
+          wake: {
+            messageId: MessageId.make(`news:${threadId}`),
+            text: "Review the failed check",
+            notification: {
+              source: { kind: "monitor" },
+              outcome: "updated",
+              summary: "#7: checks failed",
+            },
           },
-        },
-      });
-      yield* updateRun(run, "completed");
-      yield* orchestrator.dispatch({
-        type: "queue.resume",
-        commandId: CommandId.make(`resume:${threadId}`),
-        threadId,
-      });
-      const during = yield* orchestrator.getThreadProjection(threadId);
-      const compact = during.runs[1]!;
-      assert.equal(compact.status, "starting");
-      assert.equal(during.runs[2]?.status, "queued");
-      yield* updateRun(compact, "completed");
-      yield* orchestrator.dispatch({
-        type: "queue.resume",
-        commandId: CommandId.make(`resume-news:${threadId}`),
-        threadId,
-      });
-      const after = yield* orchestrator.getThreadProjection(threadId);
-      assert.equal(after.runs[2]?.status, "starting");
-      assert.equal(after.thread.pullRequests?.[0]?.watch?.headSha, "new-head");
-      assert.equal(after.messages[0]?.text, "Preserve my pending work");
-    }),
+        });
+        yield* updateRun(run, "completed");
+        yield* orchestrator.dispatch({
+          type: "queue.resume",
+          commandId: CommandId.make(`resume:${threadId}`),
+          threadId,
+        });
+        const during = yield* orchestrator.getThreadProjection(threadId);
+        const compact = during.runs[1]!;
+        assert.equal(compact.status, "starting");
+        assert.equal(during.runs[2]?.status, "queued");
+        yield* updateRun(compact, "completed");
+        yield* orchestrator.dispatch({
+          type: "queue.resume",
+          commandId: CommandId.make(`resume-news:${threadId}`),
+          threadId,
+        });
+        const after = yield* orchestrator.getThreadProjection(threadId);
+        assert.equal(after.runs[2]?.status, "starting");
+        assert.equal(after.thread.pullRequests?.[0]?.watch?.headSha, "new-head");
+        assert.equal(after.messages[0]?.text, "Preserve my pending work");
+      }),
   );
 
   it.effect("starts one compaction for a completed conversation", () =>
@@ -258,12 +260,11 @@ it.layer(layerTest)("compaction before a PR wait", (it) => {
     "maintenance",
     "permission",
     "user_input",
-    "unsupported",
   ])("rejects unsafe compaction atomically: %s", (mode) =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
       const { threadId, run } = yield* createConversation(
-        mode === "unsupported" ? "cursor" : "codex",
+        "codex",
         mode === "maintenance" ? "/compact" : "Preserve my pending work",
         mode,
       );
@@ -320,7 +321,7 @@ it.layer(layerTest)("compaction before a PR wait", (it) => {
   );
 
   it.effect.each(["permission", "user_input"] as const)(
-    "waits for input arriving after opt-in: %s",
+    "input arriving after opt-in skips the compaction: %s",
     (kind) =>
       Effect.gen(function* () {
         const orchestrator = yield* Orchestrator.OrchestratorV2;
@@ -361,27 +362,9 @@ it.layer(layerTest)("compaction before a PR wait", (it) => {
           commandId: CommandId.make(`late-resume:${kind}`),
           threadId,
         });
-        const held = (yield* orchestrator.getThreadProjection(threadId)).runs[1];
-        assert.equal(held?.status, "queued");
-        assert.equal(held?.queueHeld, true);
-        yield* sink.write({
-          events: [
-            {
-              id: EventId.make(`resolved-request:${kind}`),
-              type: "runtime-request.updated",
-              threadId,
-              occurredAt: now,
-              payload: { ...request, status: "resolved", resolvedAt: now },
-            },
-          ],
-        });
-        yield* orchestrator.dispatch({
-          type: "queue.resume",
-          commandId: CommandId.make(`resolved-resume:${kind}`),
-          threadId,
-        });
         const after = yield* orchestrator.getThreadProjection(threadId);
-        assert.equal(after.runs[1]?.status, "starting");
+        assert.equal(after.runs[1]?.status, "cancelled");
+        assert.isFalse(after.runs.some((candidate) => candidate.queueHeld === true));
         assert.isDefined(after.thread.pullRequests?.[0]?.watch);
       }),
   );
