@@ -1344,6 +1344,28 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         });
       }
 
+      // An async question or approval can arrive after the watch queued its compaction.
+      // Hold the queue so a delayed answer cannot silently buy a possibly cold compaction.
+      if (
+        queuedMessage.createdBy === "agent" &&
+        queuedMessage.creationSource === "server" &&
+        queuedMessage.text.trim().toLowerCase() === "/compact" &&
+        projection.runtimeRequests.some((request) => request.status === "pending")
+      ) {
+        const now = yield* DateTime.now;
+        yield* writeSystemEvents([
+          {
+            type: "run.updated",
+            threadId,
+            runId: queuedRun.id,
+            providerInstanceId: queuedRun.providerInstanceId,
+            occurredAt: now,
+            payload: { ...queuedRun, queueHeld: true },
+          },
+        ]);
+        return;
+      }
+
       const commandId = CommandId.make(`command:system:start-queued:${queuedRun.id}`);
       const now = yield* DateTime.now;
       const selectionChanged = !modelSelectionsEqual(
@@ -2283,6 +2305,71 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       payload: movesForward ? { ...thread, lastVisitedAt: visitedAt.value } : thread,
     });
   });
+
+  const dispatchPullRequestWatch = Effect.fn("orchestrationV2.dispatch.pullRequestWatch")(
+    function* (
+      command: Extract<OrchestrationV2Command, { readonly type: "thread.pull-request.watch" }>,
+      events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+      effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
+    ) {
+      if (!command.watching || command.compactBeforeWaiting !== true) {
+        return yield* dispatchThreadMutation(command, events, effects);
+      }
+      const projection = yield* loadProjectionForCommand(command, [
+        "runs",
+        "runtimeRequests",
+        "messages",
+      ]);
+      // Repeating a watch call must not buy another summary. Stopping and starting again is
+      // a new opt-in; the queued maintenance turn remains visible and cancellable normally.
+      const existing = threadPullRequestsOf(projection.thread).find((link) =>
+        threadPullRequestKeysEqual(link, command),
+      );
+      if (existing?.watch !== undefined) {
+        return yield* dispatchThreadMutation(command, events, effects);
+      }
+      const adapter = yield* providerAdapters
+        .get(projection.thread.providerInstanceId)
+        .pipe(mapDispatchError(command));
+      const active = projection.runs.find(isBlockingRun);
+      const latest = latestExecutedRun(projection.runs);
+      if (
+        (adapter.driver !== "codex" && adapter.driver !== "claudeAgent") ||
+        projection.runtimeRequests.some((request) => request.status === "pending") ||
+        projection.runs.some((run) => run.status === "queued") ||
+        (active !== undefined && active.status !== "running") ||
+        (active === undefined && latest?.status !== "completed") ||
+        projection.messages.some(
+          (message) => message.id === active?.userMessageId && isNativeMaintenanceCommand(message),
+        )
+      ) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause:
+            "Compacting before waiting requires a Codex or Claude conversation with no pending input, approval, queued work, or unfinished maintenance.",
+        });
+      }
+      // Commit the watch and the bounded maintenance request together. The ordinary queue
+      // runs it only after this turn ends, and Stop/archiving retain their normal semantics.
+      yield* dispatchThreadMutation(command, events, effects);
+      yield* dispatchMessage(
+        {
+          type: "message.dispatch",
+          commandId: command.commandId,
+          threadId: command.threadId,
+          messageId: MessageId.make(`${command.commandId}:compact`),
+          text: "/compact",
+          attachments: [],
+          dispatchMode: { type: "queue_after_active" },
+          createdBy: "agent",
+          creationSource: "server",
+        },
+        events,
+        effects,
+      );
+    },
+  );
 
   // Checked under the thread lock: the watch or the thread can change while the host is read.
   // The watch is recorded first so the wake's own thread events carry it.
@@ -10208,7 +10295,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.pull-request.link":
       case "thread.pull-request.unlink":
       case "thread.pull-request-link.sync":
-      case "thread.pull-request.watch":
       case "thread.pull-request.sync":
       case "thread.title.regeneration.complete":
       case "thread.runtime-mode.set":
@@ -10216,6 +10302,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.model-selection.set":
       case "provider.switch":
         yield* dispatchThreadMutation(command, events, effects);
+        break;
+      case "thread.pull-request.watch":
+        yield* dispatchPullRequestWatch(command, events, effects);
         break;
       case "thread.pull-request-watch.sync":
         yield* dispatchPullRequestWatchSync(command, events, effects);
