@@ -147,6 +147,15 @@ For a plain HTTP LAN endpoint, use the direct pairing URL in a browser that can
 open it, or pair from the desktop app. On mobile, an IP address entered without a
 scheme uses HTTP, so include `https://` when your server uses HTTPS.
 
+## Compare your machines
+
+**Settings → Fleet** lists every connected machine and what differs between
+them: a T3 Code version behind the others on the same release channel, a
+provider that is off, signed out, failing or out of date on one machine, and
+your own skills one machine has and another lacks. Each difference offers its
+fix, such as updating that server or provider, or **Copy here** for missing
+skills. A skill already on the machine is never overwritten.
+
 ## Desktop-managed SSH
 
 In the desktop app, open **Settings → Connections → Add environment**, choose

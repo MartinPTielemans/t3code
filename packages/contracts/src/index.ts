@@ -27,6 +27,8 @@ export * from "./checkpointDiff.ts";
 export * from "./model.ts";
 export * from "./keybindings.ts";
 export * from "./server.ts";
+export * from "./providerSkillTransfer.ts";
+export * from "./fleet.ts";
 export * from "./settings.ts";
 export * from "./git.ts";
 export * from "./vcs.ts";

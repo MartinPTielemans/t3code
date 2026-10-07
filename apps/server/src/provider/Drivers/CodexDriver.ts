@@ -374,6 +374,9 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv> = {
         accentColor,
         enabled,
         snapshot,
+        // An auth overlay shares `skills` with the shared home, so this is
+        // the user-scope root for either layout.
+        personalSkillsDirectory: pathService.join(homeLayout.sharedHomePath, "skills"),
         snapshotForCwd,
         consumeResetCredit,
         orchestrationAdapter,
