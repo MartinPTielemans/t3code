@@ -50,6 +50,9 @@ export type T3McpToolSummaryAction =
   | "project-clone"
   | "environment-read"
   | "environment-links"
+  | "fleet-status"
+  | "fleet-read"
+  | "fleet-copy-skills"
   | "environment-update"
   | "attachment-prepare"
   | "attachment-discard"
@@ -298,6 +301,13 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
     ["List", "Listing", "Listed", "linked environments"],
     "environment-links",
   ),
+  t3_fleet_status: tool(
+    ["Compare", "Comparing", "Compared", "linked environments"],
+    "fleet-status",
+  ),
+  t3_fleet_health: tool(["Read", "Reading", "Read", "environment health"], "fleet-read"),
+  t3_provider_skill_export: tool(["Read", "Reading", "Read", "a personal skill"], "fleet-read"),
+  t3_fleet_copy_skills: tool(["Copy", "Copying", "Copied", "skills here"], "fleet-copy-skills"),
   t3_environment_preferences_update: tool(
     ["Update", "Updating", "Updated", "environment preferences"],
     "environment-update",

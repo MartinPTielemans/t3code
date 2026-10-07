@@ -102,6 +102,13 @@ Reads are not fenced, and a client's own `thread.create` can never carry
 The link is routing, not isolation: an agent the link starts runs as the
 receiving environment's user, inside the limits above.
 
+**Fleet fixes pull, never push.** `t3_fleet_status` reads every linked
+environment's health with reads, which the fence allows. Its one fix,
+`t3_fleet_copy_skills`, reads a skill from the linked side and writes it on the
+caller's own side as an environment write, so a link can never write a skill,
+a provider or a server update into another environment. Fixes there are made
+by that environment's own agents or user.
+
 ## Hosted web is a client
 
 The hosted web app stores its connection catalog in the browser and connects

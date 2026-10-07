@@ -332,6 +332,15 @@ export function summarizeT3ToolCalls(
     case "environment-links":
       label = phrase("Listed", "list", `linked environments ${times}`);
       break;
+    case "fleet-status":
+      label = phrase("Compared", "compare", `linked environments ${times}`);
+      break;
+    case "fleet-read":
+      label = phrase("Read", "read", `environment health ${times}`);
+      break;
+    case "fleet-copy-skills":
+      label = phrase("Copied", "copy", `skills here ${times}`);
+      break;
     case "attachment-prepare":
       label = phrase(
         "Prepared",
