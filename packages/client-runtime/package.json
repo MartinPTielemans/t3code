@@ -27,6 +27,10 @@
       "types": "./src/worktreeSetup.ts",
       "default": "./src/worktreeSetup.ts"
     },
+    "./fleet": {
+      "types": "./src/fleet.ts",
+      "default": "./src/fleet.ts"
+    },
     "./load-balancing": {
       "types": "./src/load-balancing.ts",
       "default": "./src/load-balancing.ts"

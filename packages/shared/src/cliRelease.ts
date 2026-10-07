@@ -5,6 +5,8 @@
  * platform key, so a rename here is a release-breaking change.
  */
 
+import { cliReleaseChannelOf, type CliReleaseChannel } from "./releaseChannel.ts";
+
 const CLI_RELEASE_REPOSITORY = "pingdotgg/t3code";
 export const CLI_RELEASE_CHECKSUMS_FILE = "SHA256SUMS";
 /** Overrides the download origin for mirrors and air-gapped installs. */
@@ -79,18 +81,11 @@ export function parseChecksums(text: string): ReadonlyMap<string, string> {
   return checksums;
 }
 
-export type CliReleaseChannel = "stable" | "nightly" | "preview";
-export const CLI_RELEASE_CHANNELS: ReadonlyArray<CliReleaseChannel> = [
-  "stable",
-  "nightly",
-  "preview",
-];
-
-/** The release train a version was published on, derived from its prerelease tag. */
-export function cliReleaseChannelOf(version: string): CliReleaseChannel {
-  const channel = /^[^-+]+-(nightly|preview)\.\d{8}\.\d+$/.exec(version)?.[1];
-  return channel === "nightly" || channel === "preview" ? channel : "stable";
-}
+export {
+  CLI_RELEASE_CHANNELS,
+  cliReleaseChannelOf,
+  type CliReleaseChannel,
+} from "./releaseChannel.ts";
 
 /**
  * One page of GitHub's list-releases endpoint, newest first. Callers walk pages
