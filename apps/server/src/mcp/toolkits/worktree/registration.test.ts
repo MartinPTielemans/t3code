@@ -17,6 +17,7 @@ import * as ProviderAdapterRegistry from "../../../orchestration-v2/ProviderAdap
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../../../project/ProjectSetupScriptRunner.ts";
+import * as ProviderInstanceRegistry from "../../../provider/ProviderInstanceRegistry.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
 import * as ScheduledTaskService from "../../../scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
@@ -33,6 +34,7 @@ const layerStubServices = Layer.mergeAll(
   Layer.mock(DeviceService.DeviceService)({}),
   Layer.mock(ThreadManagementService.ThreadManagementService)({}),
   Layer.mock(ProviderRegistry.ProviderRegistry)({}),
+  Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({}),
   Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({}),
   Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
   Layer.mock(SecretRequests.SecretRequests)({}),

@@ -1,15 +1,16 @@
 import {
   AuthProvidersManageScope,
   type EnvironmentId,
-  type ServerProvider,
+  type FleetFinding,
+  type FleetProviderHealth,
+  type FleetSeverity,
 } from "@t3tools/contracts";
 import {
   diagnoseFleet,
-  type FleetFinding,
+  fleetHealthOf,
   type FleetMember,
   type FleetReport,
-  type FleetSeverity,
-} from "@t3tools/client-runtime/fleet";
+} from "@t3tools/shared/fleet";
 import { isAtomCommandInterrupted } from "@t3tools/client-runtime/state/runtime";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
@@ -49,7 +50,7 @@ function toFleetMember(environment: EnvironmentPresentation): FleetMember {
     label: environment.label,
     enabled: environment.entry.enabled,
     connected: environment.connection.phase === "connected",
-    serverConfig: environment.serverConfig,
+    health: environment.serverConfig ? fleetHealthOf(environment.serverConfig) : null,
   };
 }
 
@@ -63,8 +64,8 @@ function useFleetReport() {
 
 function machineSummary(member: FleetReport["members"][number], findings: number): string {
   if (!member.connected) return "Not connected";
-  if (member.serverConfig === null) return "Loading…";
-  const version = `T3 Code ${member.serverConfig.environment.serverVersion}`;
+  if (member.health === null) return "Loading…";
+  const version = `T3 Code ${member.health.serverVersion}`;
   return findings === 0
     ? `${version} · matches the fleet`
     : `${version} · ${findings} difference${findings === 1 ? "" : "s"}`;
@@ -75,7 +76,7 @@ function UpdateProviderButton({ finding }: { readonly finding: FleetFinding }) {
   const canManage = useEnvironmentScope(finding.environmentId, AuthProvidersManageScope);
   const updateProvider = useAtomCommand(serverEnvironment.updateProvider, { reportFailure: false });
   const [pending, setPending] = useState(false);
-  if (action?.kind !== "update-provider") return null;
+  if (action?._tag !== "update-provider") return null;
   return (
     <Button
       size="xs"
@@ -115,7 +116,7 @@ function CopySkillsButton({ finding }: { readonly finding: FleetFinding }) {
     reportFailure: false,
   });
   const [pending, setPending] = useState(false);
-  if (action?.kind !== "copy-skills") return null;
+  if (action?._tag !== "copy-skills") return null;
   const copy = async () => {
     setPending(true);
     const failed: string[] = [];
@@ -173,7 +174,7 @@ function FindingAction({
   const navigate = useNavigate();
   const action = finding.action;
   if (action === undefined || environment === undefined) return null;
-  switch (action.kind) {
+  switch (action._tag) {
     case "update-server":
       return (
         <ServerUpdateAction
@@ -208,11 +209,11 @@ function FindingAction({
   }
 }
 
-function ProviderCell({ provider }: { readonly provider: ServerProvider | null }) {
+function ProviderCell({ provider }: { readonly provider: FleetProviderHealth | null }) {
   if (provider === null) return <span className="text-muted-foreground">—</span>;
   if (!provider.enabled) return <span className="text-muted-foreground">Off</span>;
   if (!provider.installed) return <Badge variant="error">Not installed</Badge>;
-  if (provider.auth.status === "unauthenticated") return <Badge variant="error">Signed out</Badge>;
+  if (provider.authStatus === "unauthenticated") return <Badge variant="error">Signed out</Badge>;
   const tone =
     provider.status === "error" ? "error" : provider.status === "warning" ? "warning" : null;
   return (

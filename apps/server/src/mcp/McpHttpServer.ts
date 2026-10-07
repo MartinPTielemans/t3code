@@ -32,6 +32,9 @@ import { PreviewControlsToolkit } from "./toolkits/previewControls/tools.ts";
 import * as PreviewControlsHandlers from "./toolkits/previewControls/handlers.ts";
 import { EnvironmentToolkit } from "./toolkits/environment/tools.ts";
 import * as EnvironmentHandlers from "./toolkits/environment/handlers.ts";
+import * as FleetHandlers from "./toolkits/fleet/handlers.ts";
+import { FleetToolkit } from "./toolkits/fleet/tools.ts";
+import * as ProviderSkillTransfer from "../provider/ProviderSkillTransfer.ts";
 import { ProjectToolkit } from "./toolkits/project/tools.ts";
 import * as ProjectHandlers from "./toolkits/project/handlers.ts";
 import { AttachmentToolkit } from "./toolkits/attachment/tools.ts";
@@ -851,6 +854,10 @@ const layerEnvironmentRegistration = toolkitRegistration(
 
 export const layerProjectRegistration = toolkitRegistration(ProjectToolkit, ProjectHandlers.layer);
 
+export const layerFleetRegistration = toolkitRegistration(FleetToolkit, FleetHandlers.layer).pipe(
+  Layer.provide(ProviderSkillTransfer.layer),
+);
+
 export const layerAttachmentRegistration = toolkitRegistration(
   AttachmentToolkit,
   AttachmentHandlers.layer,
@@ -890,6 +897,7 @@ export const layer = Layer.mergeAll(
   layerAttachmentRegistration,
   layerProjectRegistration,
   layerEnvironmentRegistration,
+  layerFleetRegistration,
   layerPreviewControlsRegistration,
   layerWorktreeToolkitRegistration,
   layerPullRequestsToolkit,

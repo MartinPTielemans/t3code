@@ -2,12 +2,12 @@ import {
   EnvironmentId,
   ProviderDriverKind,
   ProviderInstanceId,
-  type ServerConfig,
+  type ExecutionEnvironmentDescriptor,
   type ServerProvider,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { diagnoseFleet, type FleetMember } from "./fleet.ts";
+import { diagnoseFleet, fleetHealthOf, type FleetMember } from "./fleet.ts";
 
 const claude = (overrides: Partial<ServerProvider> = {}): ServerProvider =>
   ({
@@ -41,14 +41,18 @@ const member = (
   label: id,
   enabled: options.enabled ?? true,
   connected: options.connected ?? true,
-  serverConfig: {
+  health: fleetHealthOf({
     environment: {
+      environmentId: EnvironmentId.make(id),
+      label: id,
       serverVersion: options.version ?? "0.9.0",
       ...(options.protocol === undefined ? {} : { orchestrationProtocolVersion: options.protocol }),
-      capabilities: options.skillTransfer ? { providerSkillTransfer: true } : {},
+      capabilities: (options.skillTransfer
+        ? { providerSkillTransfer: true }
+        : {}) as ExecutionEnvironmentDescriptor["capabilities"],
     },
     providers: options.providers ?? [claude()],
-  } as unknown as ServerConfig,
+  }),
 });
 
 const keysOf = (members: ReadonlyArray<FleetMember>) =>
@@ -68,7 +72,7 @@ describe("diagnoseFleet", () => {
       {
         environmentId: "server",
         key: "server-behind",
-        action: { kind: "update-server", targetVersion: "0.9.2" },
+        action: { _tag: "update-server", targetVersion: "0.9.2" },
       },
     ]);
   });
@@ -134,7 +138,7 @@ describe("diagnoseFleet", () => {
       {
         environmentId: "laptop",
         key: "provider-behind:claudeAgent",
-        action: { kind: "update-provider" },
+        action: { _tag: "update-provider" },
       },
     ]);
   });
@@ -176,7 +180,7 @@ describe("diagnoseFleet", () => {
         member("server", { skillTransfer: true }),
       ]).findings[0]?.action;
     expect(copyAction(true)).toEqual({
-      kind: "copy-skills",
+      _tag: "copy-skills",
       instanceId: "claudeAgent",
       skills: [{ name: "tdd", from: { environmentId: "laptop", instanceId: "claudeAgent" } }],
     });

@@ -265,6 +265,20 @@ thread wakes with its result when it ends, as for any delegated task. It keeps
 following the task across restarts. If the other machine revokes the link, the
 task fails with that reason.
 
+### Compare your machines
+
+**Settings → Fleet** lists every connected machine and what differs between
+them: a T3 Code version behind the others on the same release channel, a
+provider that is off, signed out, failing or out of date on one machine, and
+your own skills one machine has and another lacks. Each difference offers its
+fix, such as updating that server or provider, or **Copy here** for missing
+skills. A skill already on the machine is never overwritten.
+
+Agents see the same comparison across linked environments. Ask one to check
+your machines, and it can copy a missing skill onto the machine it runs on. It
+cannot change another machine's providers, server or skills; an agent on that
+machine, or you, makes those changes there.
+
 ## Manage or revoke access
 
 On the host, **Settings → Connections** lets authorized administrators create

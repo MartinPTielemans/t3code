@@ -379,6 +379,14 @@
       "types": "./src/dateTime.ts",
       "import": "./src/dateTime.ts"
     },
+    "./providerSkillSource": {
+      "types": "./src/providerSkillSource.ts",
+      "import": "./src/providerSkillSource.ts"
+    },
+    "./fleet": {
+      "types": "./src/fleet.ts",
+      "import": "./src/fleet.ts"
+    },
     "./releaseChannel": {
       "types": "./src/releaseChannel.ts",
       "import": "./src/releaseChannel.ts"
