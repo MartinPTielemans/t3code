@@ -1358,6 +1358,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       // compaction, so the answer runs next instead of waiting behind a possibly cold summary.
       if (
         queuedMessage.id.startsWith(PULL_REQUEST_WATCH_COMPACTION_PREFIX) &&
+        // The user may have edited the queued compaction into real work.
+        queuedMessage.attachments.length === 0 &&
+        queuedMessage.text.trim().toLowerCase() === "/compact" &&
         projection.runtimeRequests.some((request) => request.status === "pending")
       ) {
         const now = yield* DateTime.now;

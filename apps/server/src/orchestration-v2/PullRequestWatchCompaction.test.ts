@@ -369,6 +369,58 @@ it.layer(layerTest)("compaction before a PR wait", (it) => {
       }),
   );
 
+  it.effect("pending input never drops a compaction the user edited into work", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const sink = yield* EventSink.EventSinkV2;
+      const { threadId, run } = yield* createConversation(
+        "codex",
+        "Preserve my pending work",
+        "edited",
+      );
+      yield* updateRun(run, "running");
+      yield* watch(threadId, true);
+      const queued = (yield* orchestrator.getThreadProjection(threadId)).runs[1]!;
+      yield* orchestrator.dispatch({
+        type: "queued-run.edit",
+        commandId: CommandId.make("edit-compact"),
+        threadId,
+        runId: queued.id,
+        text: "Do the real work",
+        attachments: [],
+      });
+      const now = yield* DateTime.now;
+      yield* sink.write({
+        events: [
+          {
+            id: EventId.make("edited-request"),
+            type: "runtime-request.updated",
+            threadId,
+            occurredAt: now,
+            payload: {
+              id: RuntimeRequestId.make("edited-request"),
+              nodeId: run.rootNodeId!,
+              providerTurnId: null,
+              nativeRequestRef: null,
+              kind: "user_input",
+              status: "pending",
+              responseCapability: { type: "message" },
+              createdAt: now,
+              resolvedAt: null,
+            },
+          },
+        ],
+      });
+      yield* updateRun(run, "completed");
+      yield* orchestrator.dispatch({
+        type: "queue.resume",
+        commandId: CommandId.make("edited-resume"),
+        threadId,
+      });
+      assert.equal((yield* orchestrator.getThreadProjection(threadId)).runs[1]?.status, "starting");
+    }),
+  );
+
   it.effect("Stop holds the queued compaction and ends the watch", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
