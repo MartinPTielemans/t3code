@@ -1,7 +1,8 @@
-import type {
-  ServerProvider,
-  ServerProviderVersionAdvisory,
-  ServerProviderCompatibilityAdvisory,
+import {
+  isProviderAvailable,
+  type ServerProvider,
+  type ServerProviderVersionAdvisory,
+  type ServerProviderCompatibilityAdvisory,
 } from "@t3tools/contracts";
 
 /**
@@ -84,6 +85,24 @@ export function getProviderSummary(provider: ServerProvider | undefined) {
     headline: "Available",
     detail: provider.message ?? null,
   };
+}
+
+/**
+ * Enabled providers that cannot start work as they stand: not installed,
+ * unavailable, signed out, or failing or warning in their checks. On another
+ * machine these otherwise surface only once a thread runs there.
+ */
+export function providersNeedingAttention(providers: ReadonlyArray<ServerProvider>) {
+  return providers.filter(
+    (provider) =>
+      provider.enabled &&
+      provider.status !== "disabled" &&
+      (!provider.installed ||
+        !isProviderAvailable(provider) ||
+        provider.auth.status === "unauthenticated" ||
+        provider.status === "error" ||
+        provider.status === "warning"),
+  );
 }
 
 /**

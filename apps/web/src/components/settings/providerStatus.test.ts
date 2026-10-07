@@ -1,7 +1,11 @@
 import { ProviderDriverKind, ProviderInstanceId, type ServerProvider } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { getProviderSummary, getProviderVersionAdvisoryPresentation } from "./providerStatus";
+import {
+  getProviderSummary,
+  getProviderVersionAdvisoryPresentation,
+  providersNeedingAttention,
+} from "./providerStatus";
 
 const provider: ServerProvider = {
   instanceId: ProviderInstanceId.make("codex"),
@@ -154,5 +158,32 @@ describe("provider status copy", () => {
       headline: "Not authenticated · Company login",
       detail: "Complete this authentication method on the server.",
     });
+  });
+});
+
+describe("providersNeedingAttention", () => {
+  it("lists enabled providers that cannot start work, and nothing that is fine or off", () => {
+    const named = (id: string, overrides: Partial<ServerProvider>): ServerProvider => ({
+      ...provider,
+      instanceId: ProviderInstanceId.make(id),
+      ...overrides,
+    });
+    const listed = providersNeedingAttention([
+      named("ready", {}),
+      named("unknown-auth", { auth: { status: "unknown" } }),
+      named("switched-off", { enabled: false, auth: { status: "unauthenticated" } }),
+      named("signed-out", { auth: { status: "unauthenticated" } }),
+      named("missing", { installed: false }),
+      named("failing", { status: "error" }),
+      named("unverified", { status: "warning" }),
+      named("no-driver", { availability: "unavailable" }),
+    ]);
+    expect(listed.map((entry) => entry.instanceId)).toEqual([
+      "signed-out",
+      "missing",
+      "failing",
+      "unverified",
+      "no-driver",
+    ]);
   });
 });

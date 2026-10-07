@@ -94,6 +94,8 @@ import {
   environmentTransportLabel,
   formatDesktopSshTarget,
 } from "./EnvironmentRow";
+import { ProviderAttentionLine } from "./ProviderAttentionLine";
+import { providersNeedingAttention } from "./providerStatus";
 import { FoldedSettingsSection } from "./FoldedSettingsSection";
 import { LoadBalancingSettings } from "./LoadBalancingSettings";
 import { GitHubRoutingSettings } from "./GitHubRoutingSettings";
@@ -1637,6 +1639,10 @@ function SavedBackendListRow({
     },
   });
   const versionMismatch = resolveServerConfigVersionMismatch(environment.serverConfig);
+  const providerAttention =
+    enabled && isConnected
+      ? providersNeedingAttention(environment.serverConfig?.providers ?? [])
+      : [];
   const serverUpdateState = useAtomValue(serverEnvironment.updateStateAtom(environmentId));
   const resumingServerUpdate =
     serverUpdateState.status === "running" && serverUpdateState.stage === "resuming";
@@ -1757,11 +1763,16 @@ function SavedBackendListRow({
         </span>
       }
       below={
-        serverUpdateState.status !== "idle" ? (
-          <div className="mt-1 max-w-md">
-            <ServerUpdateProgress state={serverUpdateState} />
-          </div>
-        ) : null
+        <>
+          {serverUpdateState.status !== "idle" ? (
+            <div className="mt-1 max-w-md">
+              <ServerUpdateProgress state={serverUpdateState} />
+            </div>
+          ) : null}
+          {providerAttention.length > 0 ? (
+            <ProviderAttentionLine environmentId={environmentId} providers={providerAttention} />
+          ) : null}
+        </>
       }
       detail={
         routesOpen ? (
