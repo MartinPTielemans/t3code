@@ -1005,6 +1005,65 @@ describe("OrchestratorMcpService provider resolution", () => {
       }),
   );
 
+  it.effect("reports each provider's installed version and a newer one when it is behind", () =>
+    Effect.gen(function* () {
+      const claudeInstanceId = ProviderInstanceId.make("claudeAgent");
+      const providers: ReadonlyArray<ServerProvider> = [
+        {
+          ...providerSnapshot({
+            instanceId: codexInstanceId,
+            driver: ProviderDriverKind.make("codex"),
+          }),
+          version: "0.130.0",
+          versionAdvisory: {
+            status: "behind_latest",
+            currentVersion: "0.130.0",
+            latestVersion: "0.131.2",
+            updateCommand: null,
+            canUpdate: true,
+            checkedAt: null,
+            message: null,
+          },
+        },
+        {
+          ...providerSnapshot({
+            instanceId: claudeInstanceId,
+            driver: ProviderDriverKind.make("claudeAgent"),
+          }),
+          version: null,
+        },
+      ];
+      const capabilities = yield* Effect.gen(function* () {
+        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+        return yield* service.capabilities(scope);
+      }).pipe(
+        Effect.provide(
+          OrchestratorMcpService.layer.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                NodeServices.layer,
+                Layer.mock(ThreadManagementService.ThreadManagementService)({
+                  getThreadRecords: () => Effect.succeed(parentProjection([])),
+                }),
+                providerRegistryLayer(providers),
+                adapterRegistryLayer([codexInstanceId, claudeInstanceId]),
+                Layer.mock(ProjectService.ProjectService)({}),
+                Layer.mock(SecretRequests.SecretRequests)({}),
+                Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+              ),
+            ),
+          ),
+        ),
+      );
+      const byId = new Map(capabilities.providers.map((p) => [p.providerInstanceId, p]));
+      assert.strictEqual(byId.get(codexInstanceId)?.version, "0.130.0");
+      assert.strictEqual(byId.get(codexInstanceId)?.latestVersion, "0.131.2");
+      // Unknown versions are left out rather than reported as empty.
+      assert.isFalse("version" in byId.get(claudeInstanceId)!);
+      assert.isFalse("latestVersion" in byId.get(claudeInstanceId)!);
+    }),
+  );
+
   it.effect(
     "delegates to an Antigravity instance whose adapter resolves through the registry",
     () =>

@@ -1774,6 +1774,11 @@ const make = Effect.gen(function* () {
               canRunChildTask: constraints.length === 0,
               canRunCrossProviderChildTask: constraints.length === 0,
               constraints: [...constraints],
+              ...(provider.version === null ? {} : { version: provider.version }),
+              ...(provider.versionAdvisory?.status === "behind_latest" &&
+              provider.versionAdvisory.latestVersion !== null
+                ? { latestVersion: provider.versionAdvisory.latestVersion }
+                : {}),
             };
           }),
           features: {

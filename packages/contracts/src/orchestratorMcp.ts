@@ -481,6 +481,14 @@ export const OrchestratorMcpProviderCapability = Schema.Struct({
   canRunChildTask: Schema.Boolean,
   canRunCrossProviderChildTask: Schema.Boolean,
   constraints: Schema.Array(Schema.String),
+  version: Schema.optionalKey(
+    Schema.String.annotate({ description: "The provider's installed version, when known." }),
+  ),
+  latestVersion: Schema.optionalKey(
+    Schema.String.annotate({
+      description: "A newer release of the provider, when the installed one is behind it.",
+    }),
+  ),
 });
 export type OrchestratorMcpProviderCapability = typeof OrchestratorMcpProviderCapability.Type;
 
